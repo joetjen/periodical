@@ -98,15 +98,15 @@ defmodule Periodical.Scheduler do
     {:noreply, expire_drain_waiter(state, token)}
   end
 
-  def handle_info({:periodical_gate, gate, :open}, %{gate: gate, draining?: true} = state),
+  def handle_info({tag, gate, :open}, %{gate: gate, gate_tag: tag, draining?: true} = state),
     do: {:noreply, state}
 
-  def handle_info({:periodical_gate, gate, :open}, %{gate: gate} = state) do
+  def handle_info({tag, gate, :open}, %{gate: gate, gate_tag: tag} = state) do
     next_state = %{state | gate_open?: true} |> dispatch() |> emit_utilization()
     {:noreply, next_state}
   end
 
-  def handle_info({:periodical_gate, gate, :closed, _reason}, %{gate: gate} = state) do
+  def handle_info({tag, gate, :closed, _reason}, %{gate: gate, gate_tag: tag} = state) do
     {:noreply, %{state | gate_open?: false}}
   end
 
@@ -135,6 +135,7 @@ defmodule Periodical.Scheduler do
       drain_waiters: %{},
       draining?: false,
       gate: Config.health_gate(config),
+      gate_tag: Periodical.Gate.message_tag(),
       gate_open?: gate_open?,
       jobs: %{},
       names: %{},
