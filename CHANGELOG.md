@@ -13,15 +13,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from a private workspace where it depended on five in-house libraries. Those
   dependencies are gone; the runtime dependencies are `:telemetry` and `ical`.
 
-- **BREAKING**: recurrence is expressed in RFC 5545 `RRULE`, the iCalendar
-  standard, instead of a bespoke natural-language syntax. `"Every 30 seconds"`
-  becomes `"FREQ=SECONDLY;INTERVAL=30"`; `"Every monday at 9:30 am"` becomes
-  `"FREQ=WEEKLY;BYDAY=MO;BYHOUR=9;BYMINUTE=30"`.
+- **Recurrence accepts both RFC 5545 `RRULE` and plain English**, through
+  [Ephemeris](https://github.com/joetjen/ephemeris). Existing expressions such
+  as `"Every 30 seconds"` and `"Every monday at 9:30 am"` keep working, and the
+  same rules can now be written or stored as `FREQ=SECONDLY;INTERVAL=30` and
+  `FREQ=WEEKLY;BYDAY=MO;BYHOUR=9;BYMINUTE=30`.
 
-  This is a strict gain in expressiveness: ordinal weekdays (`BYDAY=-1SU` for
-  the last Sunday of the month), `BYSETPOS` (`the last weekday of the month`),
-  and correct month-length and leap-year handling were not expressible before.
-  Rules are now portable to and from any calendar application.
+  This is a strict gain in expressiveness. Ordinal weekdays
+  (`every last Sunday of the month`), `BYSETPOS`
+  (`every last weekday of the month`), and correct month-length and leap-year
+  handling were not expressible before — `every 31st of the month` now skips
+  February rather than firing on the 28th. Rules are portable to and from any
+  calendar application, and `Periodical.Recurrence.to_rrule/1` and
+  `to_sentence/1` render a rule either way.
 
 - **BREAKING**: telemetry events lost their vendor prefix. `[:asco, :periodical,
   …]` is now `[:periodical, …]`, emitted through `:telemetry` directly. The

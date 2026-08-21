@@ -96,7 +96,8 @@ defmodule Periodical.MixProject do
       {:stream_data, "~> 1.2", only: [:dev, :test]},
 
       # runtime dependencies
-      {:ical, "~> 3.2"},
+      # TEMPORARY: path dependency until Ephemeris is published.
+      {:ephemeris, path: "/Users/jan.oetjen/Projects/__mine__/ephemeris"},
       {:telemetry, "~> 1.3"}
     ]
   end
