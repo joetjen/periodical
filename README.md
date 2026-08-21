@@ -53,7 +53,7 @@ defmodule MyApp.Cleanup do
 end
 
 {:ok, schedule_id} =
-  Periodical.every("Every 5 minutes", MyApp.Cleanup, :run, [:expired_sessions])
+  Periodical.every("FREQ=MINUTELY;INTERVAL=5", MyApp.Cleanup, :run, [:expired_sessions])
 ```
 
 See [Usage](USAGE_GUIDE.md) for policies and configuration and

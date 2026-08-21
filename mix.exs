@@ -47,7 +47,15 @@ defmodule Periodical.MixProject do
       main: "readme",
       source_url: @source_url,
       homepage_url: "https://joetjen.github.io/periodical",
-      extras: ["README.md", "CHANGELOG.md", "LICENSE"],
+      extras: [
+        "README.md",
+        "guides/usage.md",
+        "guides/examples.md",
+        "guides/architecture.md",
+        "CHANGELOG.md",
+        "LICENSE"
+      ],
+      groups_for_extras: [Guides: ~r|^guides/|],
       groups_for_modules: [
         Core: [Periodical, Periodical.Schedule, Periodical.Trigger],
         Support: [Periodical.Config, Periodical.Error, Periodical.Stats, Periodical.Telemetry]
@@ -60,7 +68,7 @@ defmodule Periodical.MixProject do
     [
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url, "Docs" => "https://joetjen.github.io/periodical"},
-      files: ~w(lib .formatter.exs mix.exs README.md CHANGELOG.md LICENSE)
+      files: ~w(lib guides .formatter.exs mix.exs README.md CHANGELOG.md LICENSE)
     ]
   end
 
