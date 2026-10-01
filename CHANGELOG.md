@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `mix hex.publish` runs in the `docs` environment, where `ex_doc` is
+  available, instead of failing because the `docs` task is missing in `dev`.
+
 ### Changed
 
 - **Periodical is now an independent, MIT-licensed library.** It was extracted
