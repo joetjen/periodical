@@ -2,7 +2,7 @@ defmodule Periodical.MixProject do
   @moduledoc false
   use Mix.Project
 
-  @version "1.0.3"
+  @version "0.1.0"
   @source_url "https://github.com/joetjen/periodical"
 
   @spec project() :: keyword()
@@ -56,6 +56,9 @@ defmodule Periodical.MixProject do
         "LICENSE"
       ],
       groups_for_extras: [Guides: ~r|^guides/|],
+      # The changelog's history names functions and modules that no longer
+      # exist or are internal.
+      skip_undefined_reference_warnings_on: ["CHANGELOG.md"],
       groups_for_modules: [
         Core: [Periodical, Periodical.Schedule, Periodical.Trigger],
         Support: [Periodical.Config, Periodical.Error, Periodical.Stats, Periodical.Telemetry]
