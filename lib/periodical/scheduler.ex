@@ -712,7 +712,7 @@ defmodule Periodical.Scheduler do
   defp subscribe_gate(gate) do
     module = Periodical.Gate.implementation()
 
-    if is_atom(module) and module != nil and Code.ensure_loaded?(module) and
+    if module != nil and Code.ensure_loaded?(module) and
          function_exported?(module, :subscribe, 1) do
       case apply(module, :subscribe, [gate]) do
         {:ok, :open} -> {:ok, true}
@@ -731,7 +731,7 @@ defmodule Periodical.Scheduler do
   defp unsubscribe_gate(gate) do
     module = Periodical.Gate.implementation()
 
-    if is_atom(module) and module != nil and Code.ensure_loaded?(module),
+    if module != nil and Code.ensure_loaded?(module),
       do: apply(module, :unsubscribe, [gate])
 
     :ok

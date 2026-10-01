@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `mix hex.publish` runs in the `docs` environment, where `ex_doc` is
   available, instead of failing because the `docs` task is missing in `dev`.
+- Dialyzer passes again. The gate checks tested `is_atom/1` on a value already
+  typed `module() | nil`, a test that could never fail.
 
 ### Changed
 
