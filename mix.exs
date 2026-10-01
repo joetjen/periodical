@@ -29,7 +29,7 @@ defmodule Periodical.MixProject do
 
   @spec cli() :: keyword()
   def cli do
-    [preferred_envs: [credo: :dev, dialyzer: :dev, docs: :docs, precommit: :dev, test: :test]]
+    [preferred_envs: [credo: :dev, dialyzer: :dev, docs: :docs, "hex.publish": :docs, precommit: :dev, test: :test]]
   end
 
   @spec dialyzer() :: keyword()
@@ -96,8 +96,7 @@ defmodule Periodical.MixProject do
       {:stream_data, "~> 1.2", only: [:dev, :test]},
 
       # runtime dependencies
-      # TEMPORARY: path dependency until Ephemeris is published.
-      {:ephemeris, path: "/Users/jan.oetjen/Projects/__mine__/ephemeris"},
+      {:ephemeris, "~> 0.1"},
       {:telemetry, "~> 1.3"}
     ]
   end
