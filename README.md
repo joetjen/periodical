@@ -30,7 +30,7 @@ durable queue or a cluster-wide singleton scheduler.
 ```elixir
 def deps do
   [
-    {:periodical, "~> 2.0"}
+    {:periodical, "~> 0.1"}
   ]
 end
 ```
@@ -56,8 +56,8 @@ end
   Periodical.every("FREQ=MINUTELY;INTERVAL=5", MyApp.Cleanup, :run, [:expired_sessions])
 ```
 
-See [Usage](USAGE_GUIDE.md) for policies and configuration and
-[Examples](EXAMPLES.md) for focused patterns.
+See [Usage](guides/usage.md) for policies and configuration and
+[Examples](guides/examples.md) for focused patterns.
 
 ## Durability boundary
 
