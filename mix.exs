@@ -2,7 +2,7 @@ defmodule Periodical.MixProject do
   @moduledoc false
   use Mix.Project
 
-  @version "1.0.3"
+  @version "0.1.0"
   @source_url "https://github.com/joetjen/periodical"
 
   @spec project() :: keyword()
@@ -29,7 +29,7 @@ defmodule Periodical.MixProject do
 
   @spec cli() :: keyword()
   def cli do
-    [preferred_envs: [credo: :dev, dialyzer: :dev, docs: :docs, precommit: :dev, test: :test]]
+    [preferred_envs: [credo: :dev, dialyzer: :dev, docs: :docs, "hex.publish": :docs, precommit: :dev, test: :test]]
   end
 
   @spec dialyzer() :: keyword()
@@ -47,7 +47,18 @@ defmodule Periodical.MixProject do
       main: "readme",
       source_url: @source_url,
       homepage_url: "https://joetjen.github.io/periodical",
-      extras: ["README.md", "CHANGELOG.md", "LICENSE"],
+      extras: [
+        "README.md",
+        "guides/usage.md",
+        "guides/examples.md",
+        "guides/architecture.md",
+        "CHANGELOG.md",
+        "LICENSE"
+      ],
+      groups_for_extras: [Guides: ~r|^guides/|],
+      # The changelog's history names functions and modules that no longer
+      # exist or are internal.
+      skip_undefined_reference_warnings_on: ["CHANGELOG.md"],
       groups_for_modules: [
         Core: [Periodical, Periodical.Schedule, Periodical.Trigger],
         Support: [Periodical.Config, Periodical.Error, Periodical.Stats, Periodical.Telemetry]
@@ -60,7 +71,7 @@ defmodule Periodical.MixProject do
     [
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url, "Docs" => "https://joetjen.github.io/periodical"},
-      files: ~w(lib .formatter.exs mix.exs README.md CHANGELOG.md LICENSE)
+      files: ~w(lib guides .formatter.exs mix.exs README.md CHANGELOG.md LICENSE)
     ]
   end
 
@@ -88,7 +99,7 @@ defmodule Periodical.MixProject do
       {:stream_data, "~> 1.2", only: [:dev, :test]},
 
       # runtime dependencies
-      {:ical, "~> 3.2"},
+      {:ephemeris, "~> 0.1"},
       {:telemetry, "~> 1.3"}
     ]
   end

@@ -19,7 +19,7 @@ defmodule Periodical.Schedule do
   @doc "Builds a recurring schedule from a recurrence struct or expression."
 
   @spec recurring(Recurrence.t() | String.t()) :: {:ok, t()} | {:error, Error.t()}
-  def recurring(%Recurrence{} = recurrence), do: {:ok, %__MODULE__{kind: :recurring, value: recurrence}}
+  def recurring(%Ephemeris.Rule{} = recurrence), do: {:ok, %__MODULE__{kind: :recurring, value: recurrence}}
 
   def recurring(expression) when is_binary(expression) do
     case Recurrence.parse(expression) do
