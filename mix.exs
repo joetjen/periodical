@@ -2,7 +2,7 @@ defmodule Periodical.MixProject do
   @moduledoc false
   use Mix.Project
 
-  @version "0.1.0"
+  @version "0.2.0"
   @source_url "https://github.com/joetjen/periodical"
 
   @spec project() :: keyword()
@@ -20,12 +20,19 @@ defmodule Periodical.MixProject do
       aliases: aliases(),
       package: package(),
       test_paths: ["test/periodical"],
+      elixirc_paths: elixirc_paths(Mix.env()),
       deps: deps()
     ]
   end
 
+  # Test support is compiled to disk so the peer nodes of the multi-instance
+  # tests can load it from the code path.
+  @spec elixirc_paths(atom()) :: [Path.t()]
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_env), do: ["lib"]
+
   @spec application() :: keyword()
-  def application, do: [mod: {Periodical.Application, []}]
+  def application, do: [mod: {Periodical.Application, []}, extra_applications: [:crypto, :logger, :runtime_tools]]
 
   @spec cli() :: keyword()
   def cli do
@@ -61,6 +68,7 @@ defmodule Periodical.MixProject do
       skip_undefined_reference_warnings_on: ["CHANGELOG.md"],
       groups_for_modules: [
         Core: [Periodical, Periodical.Schedule, Periodical.Trigger],
+        Coordination: [Periodical.Coordinator, Periodical.Coordinator.Claim],
         Support: [Periodical.Config, Periodical.Error, Periodical.Stats, Periodical.Telemetry]
       ]
     ]
@@ -69,7 +77,7 @@ defmodule Periodical.MixProject do
   @spec package() :: keyword()
   defp package do
     [
-      licenses: ["MIT"],
+      licenses: ["Apache-2.0"],
       links: %{"GitHub" => @source_url, "Docs" => "https://joetjen.github.io/periodical"},
       files: ~w(lib guides .formatter.exs mix.exs README.md CHANGELOG.md LICENSE)
     ]

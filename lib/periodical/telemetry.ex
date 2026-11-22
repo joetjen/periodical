@@ -16,6 +16,8 @@ defmodule Periodical.Telemetry do
   | `[:periodical, :trigger, :terminal]` | counter | `:count` | `:result` |
   | `[:periodical, :trigger, :skipped]` | counter | `:count` | `:reason` |
   | `[:periodical, :trigger, :lateness]` | distribution | `:milliseconds` | — |
+  | `[:periodical, :coordinator, :claim]` | counter | `:count`, `:duration` (native) | `:result` (`:won`, `:lost`, `:error`) |
+  | `[:periodical, :coordinator, :renew]` | counter | `:count` | `:result` (`:ok`, `:lost`, `:error`) |
   | `[:periodical, :scheduler, :schedules]` | last value | `:value` | — |
   | `[:periodical, :scheduler, :pending]` | last value | `:value` | — |
   | `[:periodical, :scheduler, :in_flight]` | last value | `:value` | — |
@@ -65,6 +67,15 @@ defmodule Periodical.Telemetry do
   @doc "Records triggers that were skipped rather than executed."
   @spec trigger_skipped(non_neg_integer(), map()) :: :ok
   def trigger_skipped(count, metadata \\ %{}), do: count(:trigger, :skipped, count, metadata)
+
+  @doc "Records one coordinator claim attempt, its duration in native time units, and its result."
+  @spec coordinator_claim(integer(), map()) :: :ok
+  def coordinator_claim(duration, metadata),
+    do: :telemetry.execute([@app, :coordinator, :claim], %{count: 1, duration: duration}, metadata)
+
+  @doc "Records one coordinator lease renewal by result."
+  @spec coordinator_renew(map()) :: :ok
+  def coordinator_renew(metadata), do: count(:coordinator, :renew, 1, metadata)
 
   # Distributions
 

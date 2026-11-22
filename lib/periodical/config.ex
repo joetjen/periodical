@@ -11,6 +11,10 @@ defmodule Periodical.Config do
   @allowed_keys [
     :admission_timeout_ms,
     :clock_module,
+    :coordinator,
+    :coordinator_error,
+    :coordinator_strategy,
+    :default_claim_ttl_ms,
     :default_execution_timeout_ms,
     :default_misfire,
     :default_overlap,
@@ -26,6 +30,10 @@ defmodule Periodical.Config do
   @defaults [
     admission_timeout_ms: :timer.seconds(5),
     clock_module: Periodical.Clock.System,
+    coordinator: nil,
+    coordinator_error: :skip,
+    coordinator_strategy: :random,
+    default_claim_ttl_ms: :timer.minutes(1),
     default_execution_timeout_ms: :timer.seconds(60),
     default_misfire: :skip,
     default_overlap: :skip,
@@ -39,6 +47,10 @@ defmodule Periodical.Config do
     timer_module: Periodical.Timer.System
   ]
 
+  # A least-load claim is delayed by at most this much, whatever the setting:
+  # a strategy that waits longer stops being a tie-breaker and starts being lateness.
+  @max_claim_delay_ms 5_000
+
   @enforce_keys @allowed_keys
   defstruct @allowed_keys
 
@@ -47,6 +59,16 @@ defmodule Periodical.Config do
 
   @typedoc "A policy controlling concurrent occurrences of one schedule."
   @type overlap_policy :: :allow | :skip
+
+  @typedoc "What a scheduler does with a run when its coordinator fails to answer."
+  @type coordinator_error_policy :: :run | :skip
+
+  @typedoc "Where a least-load strategy reads the instance's load from."
+  @type load_source :: :in_flight | :run_queue | :scheduler_utilization | {module(), atom(), list()}
+
+  @typedoc "A normalized claim strategy."
+  @type coordinator_strategy ::
+          :random | {:least_load, load: load_source(), max_delay_ms: pos_integer()}
 
   @typedoc "Validated immutable Periodical runtime configuration."
   @opaque t :: %__MODULE__{}
@@ -69,8 +91,10 @@ defmodule Periodical.Config do
          values <- Keyword.merge(@defaults, settings),
          :ok <- validate_values(values),
          :ok <- validate_modules(values),
-         :ok <- validate_relationships(values) do
-      {:ok, struct!(__MODULE__, values)}
+         :ok <- validate_relationships(values),
+         {:ok, coordinator} <- normalize_coordinator(values[:coordinator]),
+         {:ok, strategy} <- normalize_strategy(values[:coordinator_strategy]) do
+      {:ok, struct!(__MODULE__, Keyword.merge(values, coordinator: coordinator, coordinator_strategy: strategy))}
     end
   end
 
@@ -83,6 +107,22 @@ defmodule Periodical.Config do
   @doc "Returns the configured wall-clock implementation."
   @spec clock_module(t()) :: module()
   def clock_module(%__MODULE__{clock_module: value}), do: value
+
+  @doc "Returns the configured coordinator as `{module, options}`, or `nil` when runs are not coordinated."
+  @spec coordinator(t()) :: {module(), keyword()} | nil
+  def coordinator(%__MODULE__{coordinator: value}), do: value
+
+  @doc "Returns what happens to a run whose claim fails with an error."
+  @spec coordinator_error(t()) :: coordinator_error_policy()
+  def coordinator_error(%__MODULE__{coordinator_error: value}), do: value
+
+  @doc "Returns the normalized claim strategy."
+  @spec coordinator_strategy(t()) :: coordinator_strategy()
+  def coordinator_strategy(%__MODULE__{coordinator_strategy: value}), do: value
+
+  @doc "Returns the claim lease for one-time schedules and final recurring occurrences, in milliseconds."
+  @spec default_claim_ttl_ms(t()) :: pos_integer()
+  def default_claim_ttl_ms(%__MODULE__{default_claim_ttl_ms: value}), do: value
 
   @doc "Returns the default callback execution timeout in milliseconds."
   @spec default_execution_timeout_ms(t()) :: pos_integer()
@@ -169,6 +209,7 @@ defmodule Periodical.Config do
   defp validate_values(values) do
     positive = [
       :admission_timeout_ms,
+      :default_claim_ttl_ms,
       :default_execution_timeout_ms,
       :max_execution_timeout_ms,
       :max_in_flight,
@@ -183,6 +224,7 @@ defmodule Periodical.Config do
       values[:default_overlap] not in [:allow, :skip] -> invalid(:default_overlap, :supported_policy)
       not valid_time_zone?(values[:default_time_zone]) -> invalid(:default_time_zone, :non_empty_binary)
       not valid_gate?(values[:health_gate]) -> invalid(:health_gate, :atom_or_nil)
+      values[:coordinator_error] not in [:run, :skip] -> invalid(:coordinator_error, :run_or_skip)
       true -> :ok
     end
   end
@@ -203,6 +245,54 @@ defmodule Periodical.Config do
       do: :ok,
       else: invalid(:settings, :consistent_timeout_bounds)
   end
+
+  # Accepts no coordinator, a module, or a module with its own keyword options.
+  @spec normalize_coordinator(term()) :: {:ok, {module(), keyword()} | nil} | {:error, Error.t()}
+  defp normalize_coordinator(nil), do: {:ok, nil}
+  defp normalize_coordinator(module) when is_atom(module), do: normalize_coordinator({module, []})
+
+  defp normalize_coordinator({module, options}) when is_atom(module) and is_list(options) do
+    if Keyword.keyword?(options) and exports?(module, claim: 2),
+      do: {:ok, {module, options}},
+      else: invalid(:coordinator, :coordinator_behaviour)
+  end
+
+  defp normalize_coordinator(_value), do: invalid(:coordinator, :coordinator_behaviour)
+
+  # Expands the strategy shorthand into one explicit, bounded form.
+  @spec normalize_strategy(term()) :: {:ok, coordinator_strategy()} | {:error, Error.t()}
+  defp normalize_strategy(:random), do: {:ok, :random}
+  defp normalize_strategy(:least_load), do: normalize_strategy({:least_load, []})
+
+  defp normalize_strategy({:least_load, options}) when is_list(options) do
+    load = Keyword.get(options, :load, :in_flight)
+    max_delay_ms = Keyword.get(options, :max_delay_ms, 250)
+
+    cond do
+      not Keyword.keyword?(options) or Keyword.keys(options) -- [:load, :max_delay_ms] != [] ->
+        invalid(:coordinator_strategy, :supported_strategy)
+
+      not valid_load_source?(load) ->
+        invalid(:coordinator_strategy, :supported_load_source)
+
+      not (is_integer(max_delay_ms) and max_delay_ms in 1..@max_claim_delay_ms) ->
+        invalid(:coordinator_strategy, :bounded_max_delay_ms)
+
+      true ->
+        {:ok, {:least_load, load: load, max_delay_ms: max_delay_ms}}
+    end
+  end
+
+  defp normalize_strategy(_value), do: invalid(:coordinator_strategy, :supported_strategy)
+
+  # Accepts the built-in load sources or an application function.
+  @spec valid_load_source?(term()) :: boolean()
+  defp valid_load_source?(source) when source in [:in_flight, :run_queue, :scheduler_utilization], do: true
+
+  defp valid_load_source?({module, function, args}) when is_atom(module) and is_atom(function) and is_list(args),
+    do: exports?(module, [{function, length(args)}])
+
+  defp valid_load_source?(_source), do: false
 
   # Checks a strictly positive integer setting.
   @spec positive_integer?(term()) :: boolean()

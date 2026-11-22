@@ -53,6 +53,24 @@ end
 :ok = Periodical.cancel(:refresh)
 ```
 
+## One instance per occurrence
+
+```elixir
+# config/runtime.exs, on every instance
+config :periodical, Periodical.Config,
+  coordinator: {PeriodicalEcto, repo: MyApp.Repo},
+  coordinator_strategy: :least_load
+
+# application start, on every instance
+Periodical.every("FREQ=DAILY;BYHOUR=3;BYMINUTE=0;BYSECOND=0", MyApp.Billing, :close_day, [],
+  name: :close_day,
+  overlap: :skip
+)
+```
+
+All instances register the schedule; at 03:00 the least loaded one claims the
+run and the others skip it.
+
 ## Durable handoff
 
 ```elixir
@@ -76,4 +94,4 @@ Periodical.every(
 ```
 
 This combined pattern keeps time calculation local while assigning durability,
-retry, and cross-replica coordination to the queue that owns those guarantees.
+retry, and redelivery to the queue that owns those guarantees.

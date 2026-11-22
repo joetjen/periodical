@@ -3,9 +3,13 @@ defmodule Periodical do
   Runs bounded local recurring and one-time schedules.
 
   Schedule state is in memory and local to one BEAM instance. Periodical does
-  not provide durable triggering, cluster-wide singleton execution, or retries.
-  A callback that requires durable execution should explicitly publish to a
-  durable queue at its application-owned boundary.
+  not provide durable triggering or retries. A callback that requires durable
+  execution should explicitly publish to a durable queue at its
+  application-owned boundary.
+
+  Every instance that registers a schedule runs it, unless a
+  `Periodical.Coordinator` is configured: then the instances sharing a named
+  schedule claim each run and only the winner executes it.
   """
 
   alias Periodical.Recurrence

@@ -9,15 +9,18 @@ or deployment.
 ## Responsibility and boundaries
 
 Periodical decides when a local handoff should be attempted. It does not own
-durability, retries, cluster-wide singleton execution, or cross-node schedule
-coordination. Every BEAM instance has an independent schedule registry and
-runs the same registered schedules. Durable or exactly-coordinated work must be
+durability or retries. Every BEAM instance has an independent schedule
+registry and runs the same registered schedules, unless a configured
+`Periodical.Coordinator` decides, per occurrence of a named schedule, which
+instance runs it. The coordinator owns the claim store; Periodical owns when to
+claim, the lease length, the strategy delay, and renewal. Durable work must be
 published by the callback to a source-owning broker or queue.
 
 The OTP application is justified because the library owns long-lived scheduler
 and worker-supervisor processes. Recurrence parsing and calendar calculation
 remain in `Periodical.Recurrence`; Periodical wraps those values in schedules
-and owns runtime triggering. The optional health library owns gate state.
+and owns runtime triggering. The configured `Periodical.Gate` implementation
+owns gate state.
 
 ## Code map
 
@@ -26,16 +29,23 @@ and owns runtime triggering. The optional health library owns gate state.
 | `lib/periodical.ex` | Public recurring/one-time registration and lifecycle control. |
 | `lib/periodical/application.ex` | Configuration validation and root supervision startup. |
 | `lib/periodical/config.ex` | Typed operational defaults, adapters, and validation. |
+| `lib/periodical/recurrence.ex` | Recurrence rule boundary over Ephemeris (RFC 5545 `RRULE` and English), keeping Periodical's error type. |
 | `lib/periodical/schedule.ex` | Passive recurrence/one-time calculations using explicit reference time. |
 | `lib/periodical/job.ex` | Internal validated registration and callback metadata. |
 | `lib/periodical/scheduler.ex` | Schedule, timer, pending-trigger, and callback state machine. |
+| `lib/periodical/scheduler/tree.ex` | Ordered tree of due schedules over Erlang's `:gb_trees`. |
+| `lib/periodical/coordinator.ex` | Public coordinator behaviour, claim struct, and stable claim keys. |
+| `lib/periodical/coordination.ex` | Claim plan, strategy delay, error policy, and lease renewal inside the callback task. |
 | `lib/periodical/clock.ex` | Replaceable wall-clock behavior and system implementation. |
 | `lib/periodical/timer.ex` | Replaceable one-shot timer behaviour over Erlang's `:timer`. |
+| `lib/periodical/gate.ex` | Optional health-gate behaviour and its configured message tag. |
+| `lib/periodical/error.ex` | Stable, typed `Periodical.Error` codes. |
 | `lib/periodical/trigger.ex` | Typed callback occurrence value. |
 | `lib/periodical/stats.ex` | Payload-free public utilization snapshot. |
 | `lib/periodical/telemetry.ex` | Canonical `[:periodical, ...]` declarations. |
-| `test/periodical/` | Offline unit, property, lifecycle, and package tests. |
-| `test/fixtures/consumer_app/` | Test-only application proving dependency startup and callback delivery. |
+| `lib/periodical/telemetry/context.ex`, `logger_context.ex` | Context propagation behaviour from registration to callback, and its `Logger.metadata/0` default. |
+| `test/periodical/` | Offline unit, property, lifecycle, package, and multi-instance (`:peer`) tests. |
+| `test/support/` | Shared lease store, coordinators, and skewed clock used by the coordination tests. |
 
 ## Runtime and startup
 
@@ -55,7 +65,7 @@ schedules; that is part of the explicit non-durable contract.
 
 OTP starts the following application callbacks in dependency/release order. Each callback must return only after its root supervisor or bounded startup work succeeds:
 
-1. OTP invokes **Periodical.Application.start/2** in `libs/periodical/lib/periodical/application.ex`. It calls **Config.load/0** → **Supervisor.start_link/2** → **children/1** → **supervisor_options/0**.
+1. OTP invokes **Periodical.Application.start/2** in `lib/periodical/application.ex`. It calls **Config.load/0** → **Supervisor.start_link/2** → **children/1** → **supervisor_options/0**.
 
 The callback and its startup/shutdown helpers have this source-derived flow:
 
@@ -71,7 +81,7 @@ The project-owned runtime process set is **Periodical.Scheduler**. Exact child o
 
 ### **Periodical.Scheduler**
 
-- **OTP abstraction:** `GenServer` implemented in `libs/periodical/lib/periodical/scheduler.ex`.
+- **OTP abstraction:** `GenServer` implemented in `lib/periodical/scheduler.ex`.
 - **Owner and restart:** started from **Periodical.Application**. Unless its child specification overrides this, OTP uses the abstraction's standard permanent-child restart behavior.
 - **Registration and lookup:** the concrete `start_link` flow below is authoritative for a local name, Registry/via tuple, or caller-supplied name; no undocumented global lookup is assumed.
 - **State and resources:** `init` and `handle_continue` rows show the functions used to construct state and acquire resources. External dependency processes are not re-owned by this module.
@@ -82,8 +92,8 @@ The project-owned runtime process set is **Periodical.Scheduler**. Exact child o
 | **start_link/1** | `def` | calls **GenServer.start_link/3**; references **GenServer** |
 | **init/1** | `def` | calls **subscribe_gate/1** → **Config.health_gate/1** → **initial_state/2**; references **Config** |
 | **handle_call/3** | `def` | calls **register/6** → **emit_utilization/1** |
-| **handle_info/2** | `def` | calls **due/4** → **dispatch/0** → **emit_utilization/0** |
-| **terminate/2** | `def` | calls **unsubscribe_gate/1** → **state.gate/0** → **Enum.each/2** → **state.jobs/0** → **cancel_timer/2** → **job.timer_ref/0** → **state.running/0** → **stop_task/2**; references **Enum** |
+| **handle_info/2** | `def` | calls **due/4** → **dispatch/1** → **emit_utilization/1** |
+| **terminate/2** | `def` | calls **unsubscribe_gate/1** → **cancel_timer/2** for every schedule → **stop_task/2** for every running callback |
 
 
 ## Communication and data flow
@@ -91,8 +101,9 @@ The project-owned runtime process set is **Periodical.Scheduler**. Exact child o
 Public control uses local synchronous `GenServer.call/3`. Schedule and deadline
 timers send local messages. Callback tasks are monitored rather than linked to
 the scheduler. The system timer calls only Erlang's `:timer`; recurrence parsing and
-arithmetic call `Periodical.Recurrence`, which implements RFC 5545 `RRULE`
-over `ical`; telemetry is emitted through `:telemetry`. Periodical itself has no database, filesystem,
+arithmetic call `Periodical.Recurrence`, a boundary over Ephemeris, which
+implements RFC 5545 `RRULE` and English rules; telemetry is emitted through
+`:telemetry`. Periodical itself has no database, filesystem,
 HTTP, broker, or cache effects.
 
 ## Configuration and operational behavior
@@ -110,9 +121,15 @@ implicit global state.
 
 ## Failure, concurrency, and observability
 
-Schedule, pending, and running limits are per node. Replicas intentionally
-duplicate schedules, so callbacks that publish externally must use an
-application-owned idempotency/deduplication contract. Callback exits and
+Schedule, pending, and running limits are per node. Without a coordinator,
+replicas intentionally duplicate schedules, so callbacks that publish
+externally must use an application-owned idempotency/deduplication contract.
+With one, a coordinated occurrence is claimed in the callback task before the
+callback runs: `start_run` builds the claim plan, the task waits the strategy
+delay, claims, and either runs the callback (renewing the lease from a linked
+process on `overlap: :skip` schedules) or reports `{:skipped, reason}`, which
+the scheduler records as a skipped trigger. A dead winner's lease expires; its
+occurrence is not re-run. Callback exits and
 timeouts do not crash the scheduler and are never retried locally. Scheduler
 failure loses state and its supervisor restarts an empty scheduler.
 
@@ -125,6 +142,8 @@ metric tags. The library declares events but starts no reporter or listener.
 Begin registration changes in `Periodical.every/5` or `once/5`, follow the
 schedule calculation, then inspect the matching scheduler call/message path.
 Update policy tests and this document with timing, overlap, misfire, drain, or
-process-ownership changes. Run `mix setup`, `mix precommit`, warning-strict
-production compilation, ExDoc, architecture audit, and package inspection. No
-external integration system is required or automatically started.
+process-ownership changes. Run `mix deps.get`, `mix precommit` (warning-strict
+compilation, formatting, Credo, Dialyzer, and the test suite, including the
+multi-instance tests on local `:peer` nodes), `MIX_ENV=prod mix compile`,
+`mix docs`, and `mix hex.build`. No external integration system is required or
+automatically started.
