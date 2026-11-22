@@ -1,9 +1,9 @@
 defmodule Periodical.Job do
   @moduledoc false
 
-  alias Periodical.{Config, Error, Schedule}
+  alias Periodical.{Config, Coordinator, Error, Schedule}
 
-  @allowed_options [:execution_timeout_ms, :misfire, :name, :overlap, :time_zone]
+  @allowed_options [:claim_ttl_ms, :coordinate, :execution_timeout_ms, :misfire, :name, :overlap, :time_zone]
   @enforce_keys [
     :args,
     :execution_timeout_ms,
@@ -19,12 +19,16 @@ defmodule Periodical.Job do
     :status,
     :time_zone
   ]
-  defstruct @enforce_keys ++ [timer_ref: nil, timer_token: nil]
+  defstruct @enforce_keys ++
+              [claim_ttl_ms: nil, coordinate: false, coordination_key: nil, timer_ref: nil, timer_token: nil]
 
   @type name :: atom() | tuple() | nil
   @type status :: :active | :paused
   @type t :: %__MODULE__{
           args: list(),
+          claim_ttl_ms: pos_integer() | nil,
+          coordinate: boolean(),
+          coordination_key: String.t() | nil,
           execution_timeout_ms: pos_integer(),
           function: atom(),
           id: pos_integer(),
@@ -58,15 +62,19 @@ defmodule Periodical.Job do
          {:ok, misfire} <- validate_misfire(Keyword.get(options, :misfire, Config.default_misfire(config))),
          {:ok, timeout_ms} <- validate_timeout(options, config),
          {:ok, time_zone} <- validate_time_zone(Keyword.get(options, :time_zone, Config.default_time_zone(config))),
+         {:ok, coordinate} <- validate_coordinate(Keyword.get(options, :coordinate), name, config),
+         {:ok, claim_ttl_ms} <- validate_claim_ttl(Keyword.get(options, :claim_ttl_ms)),
          {:ok, next_at} <- Schedule.next(schedule, reference) do
-      {:ok,
-       build(
-         id,
-         schedule,
-         {module, function, args},
-         options_map(name, overlap, misfire, timeout_ms, time_zone),
-         next_at
-       )}
+      job =
+        build(
+          id,
+          schedule,
+          {module, function, args},
+          options_map(name, overlap, misfire, timeout_ms, time_zone),
+          next_at
+        )
+
+      {:ok, coordinated(job, coordinate, claim_ttl_ms)}
     end
   end
 
@@ -95,6 +103,31 @@ defmodule Periodical.Job do
       time_zone: values.time_zone
     }
   end
+
+  # Adds the cluster-wide claim settings to a coordinated job.
+  @spec coordinated(t(), boolean(), pos_integer() | nil) :: t()
+  defp coordinated(job, false, _claim_ttl_ms), do: job
+
+  defp coordinated(job, true, claim_ttl_ms),
+    do: %{job | coordinate: true, coordination_key: Coordinator.key(job.name), claim_ttl_ms: claim_ttl_ms}
+
+  # Coordinates named schedules by default once a coordinator is configured.
+  @spec validate_coordinate(term(), name(), Config.t()) :: {:ok, boolean()} | {:error, Error.t()}
+  defp validate_coordinate(nil, name, config), do: {:ok, name != nil and Config.coordinator(config) != nil}
+  defp validate_coordinate(false, _name, _config), do: {:ok, false}
+  defp validate_coordinate(true, nil, _config), do: invalid(:coordinate, :named_schedule)
+
+  defp validate_coordinate(true, _name, config) do
+    if Config.coordinator(config) == nil, do: invalid(:coordinate, :configured_coordinator), else: {:ok, true}
+  end
+
+  defp validate_coordinate(_value, _name, _config), do: invalid(:coordinate, :boolean)
+
+  # Accepts an explicit positive claim lease.
+  @spec validate_claim_ttl(term()) :: {:ok, pos_integer() | nil} | {:error, Error.t()}
+  defp validate_claim_ttl(nil), do: {:ok, nil}
+  defp validate_claim_ttl(ttl_ms) when is_integer(ttl_ms) and ttl_ms > 0, do: {:ok, ttl_ms}
+  defp validate_claim_ttl(_ttl_ms), do: invalid(:claim_ttl_ms, :positive_integer)
 
   # Groups validated scalar options without exposing raw input.
   @spec options_map(name(), Config.overlap_policy(), Config.misfire_policy(), pos_integer(), String.t()) :: map()

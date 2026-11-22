@@ -4,7 +4,7 @@ defmodule Periodical.Scheduler do
   use GenServer
 
   alias Periodical.Scheduler.Tree, as: GBTree
-  alias Periodical.{Config, Error, Job, Schedule, Stats, Telemetry, Trigger}
+  alias Periodical.{Config, Coordination, Error, Job, Schedule, Stats, Telemetry, Trigger}
 
   @type state :: map()
   @type pending_key :: {integer(), pos_integer()}
@@ -80,10 +80,10 @@ defmodule Periodical.Scheduler do
     end
   end
 
-  def handle_info({reference, _result}, state) when is_reference(reference) do
+  def handle_info({reference, outcome}, state) when is_reference(reference) do
     case Map.get(state.running, reference) do
       nil -> {:noreply, state}
-      run -> {:noreply, finish_run(state, reference, run, :ok)}
+      run -> {:noreply, finish_run(state, reference, run, run_result(outcome))}
     end
   end
 
@@ -391,9 +391,18 @@ defmodule Periodical.Scheduler do
   defp start_or_skip(state, job, trigger), do: start_run(state, job, trigger)
 
   # Starts one monitored callback and its independent execution deadline.
+  #
+  # A coordinated schedule claims its run inside the task, before the
+  # callback, so a slow or delayed claim never blocks the scheduler.
   @spec start_run(state(), Job.t(), Trigger.t()) :: state()
   defp start_run(state, job, trigger) do
-    task = Task.Supervisor.async_nolink(Periodical.TaskSupervisor, fn -> execute(job, trigger) end)
+    plan = Coordination.plan(job, trigger.scheduled_at, state.config, map_size(state.running))
+
+    task =
+      Task.Supervisor.async_nolink(Periodical.TaskSupervisor, fn ->
+        Coordination.run(plan, fn -> execute(job, trigger) end)
+      end)
+
     token = make_ref()
 
     case Config.timer_module(state.config).send_after(
@@ -433,8 +442,13 @@ defmodule Periodical.Scheduler do
     %{state | active_counts: counts, running: running}
   end
 
+  # Reads a task's reported outcome as a terminal result or a skip.
+  @spec run_result(term()) :: :ok | {:skipped, atom()}
+  defp run_result({:skipped, reason}), do: {:skipped, reason}
+  defp run_result(_ran), do: :ok
+
   # Completes callback ownership exactly once and resumes bounded dispatch.
-  @spec finish_run(state(), reference(), run(), atom()) :: state()
+  @spec finish_run(state(), reference(), run(), atom() | {:skipped, atom()}) :: state()
   defp finish_run(state, reference, run, result) do
     cancel_timer(state, run.timeout_ref)
     Process.demonitor(reference, [:flush])
@@ -482,10 +496,13 @@ defmodule Periodical.Scheduler do
     %{state | drain_waiters: %{}}
   end
 
-  # Emits one terminal result and retires a completed one-time job.
-  @spec terminal_job(state(), pos_integer(), atom()) :: state()
+  # Emits one terminal result (or skip) and retires a completed one-time job.
+  @spec terminal_job(state(), pos_integer(), atom() | {:skipped, atom()}) :: state()
   defp terminal_job(state, job_id, result) do
-    Telemetry.trigger_terminal(1, %{result: result})
+    case result do
+      {:skipped, reason} -> Telemetry.trigger_skipped(1, %{reason: reason})
+      result -> Telemetry.trigger_terminal(1, %{result: result})
+    end
 
     case Map.get(state.jobs, job_id) do
       %Job{schedule: %{kind: :once}} -> delete_job(state, job_id)

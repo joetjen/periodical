@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-11-22
+
+### Added
+
+- **Optional cluster-wide coordination.** With a module implementing the new
+  `Periodical.Coordinator` behaviour configured as `:coordinator`, the
+  instances that register the same named schedule claim each run in a shared
+  store, and only the winner executes it; the others count the occurrence as
+  skipped with reason `:claim_lost`. Without a coordinator nothing changes.
+  Periodical gains no dependency: the adapters are the separate packages
+  `periodical_redis` (Redis, KeyDB) and `periodical_ecto` (PostgreSQL,
+  MariaDB/MySQL).
+  - A claim is a lease on the schedule's name, 90% of the gap to its next
+    occurrence (`:default_claim_ttl_ms` for one-time schedules, or the
+    schedule's own `:claim_ttl_ms`), so instances with skewed clocks or
+    different registration times still run each occurrence once.
+  - `:coordinator_strategy`: `:random` (the default, claim at once) or
+    `:least_load`, which delays each claim by the instance's load (running
+    callbacks, run queue, scheduler utilization, or your own function) so the
+    least loaded instance tends to win.
+  - `:coordinator_error`: a failing coordinator skips the occurrence (`:skip`,
+    the default) or runs it locally (`:run`); either way it is logged.
+  - A long callback on an `overlap: :skip` schedule extends its lease while it
+    runs, through the optional `c:Periodical.Coordinator.renew/2`.
+  - New schedule options `:coordinate` and `:claim_ttl_ms`; new telemetry
+    events `[:periodical, :coordinator, :claim]` and
+    `[:periodical, :coordinator, :renew]`.
+
+### Changed
+
+- Licensed under the Apache License 2.0 (`Apache-2.0`); it was MIT.
+
 ## [0.1.0] - 2026-10-01
 
 The first public release. Periodical was extracted from a private workspace,
