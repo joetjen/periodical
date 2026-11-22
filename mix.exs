@@ -34,9 +34,11 @@ defmodule Periodical.MixProject do
   @spec application() :: keyword()
   def application, do: [mod: {Periodical.Application, []}, extra_applications: [:crypto, :logger, :runtime_tools]]
 
+  # The gate runs in :test, as CI does, so the compile, Credo, and Dialyzer
+  # also cover test/support.
   @spec cli() :: keyword()
   def cli do
-    [preferred_envs: [credo: :dev, dialyzer: :dev, docs: :docs, "hex.publish": :docs, precommit: :dev, test: :test]]
+    [preferred_envs: [credo: :test, dialyzer: :test, docs: :docs, "hex.publish": :docs, precommit: :test, test: :test]]
   end
 
   @spec dialyzer() :: keyword()

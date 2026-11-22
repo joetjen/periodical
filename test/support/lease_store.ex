@@ -15,7 +15,8 @@ defmodule PeriodicalTest.LeaseStore do
   def start_link(_options \\ []), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
 
   @doc false
-  @spec claim(node(), Claim.t()) :: :won | :lost | {:error, term()}
+  # `:raise` is the `mode(:raise)` answer, which `StoreCoordinator` turns into a raise.
+  @spec claim(node(), Claim.t()) :: :won | :lost | :raise | {:error, term()}
   def claim(node, claim), do: GenServer.call({__MODULE__, node}, {:claim, claim, Node.self()})
 
   @doc false
